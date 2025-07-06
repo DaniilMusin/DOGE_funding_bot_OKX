@@ -43,6 +43,7 @@ class OKXGateway:
         self._ws = None
         self._ws_logged = False
         await asyncio.sleep(1)
+        await self._ensure_ws()
 
     async def _headers(self, method: str, path: str, body: str = "") -> Dict[str, str]:
         ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
@@ -135,15 +136,13 @@ class OKXGateway:
             sub_arg["instId"] = inst_id
         await self._ensure_ws()
         await self.ws_send({"op": "subscribe", "args": [sub_arg]})
-        ws = await self.ws()
         while True:
             try:
-                raw = await asyncio.wait_for(ws.recv(), 30)
+                raw = await asyncio.wait_for(self._ws.recv(), 30)
             except (asyncio.TimeoutError, websockets.ConnectionClosed):
-                log.warning("WS_DROP", chan=channel)
+                log.warning("WS_TIMEOUT", chan=channel)
                 await self._reset_ws()
                 await self.ws_send({"op": "subscribe", "args": [sub_arg]})
-                ws = await self.ws()
                 continue
             msg = json.loads(raw)
             if msg.get("event") == "error":
