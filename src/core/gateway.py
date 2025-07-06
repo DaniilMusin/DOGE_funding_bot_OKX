@@ -8,7 +8,6 @@ import os
 import base64
 import hashlib
 import hmac
-from pydantic import BaseModel
 from typing import Any, AsyncGenerator, Dict
 
 log = structlog.get_logger()
@@ -28,6 +27,21 @@ class OKXGateway:
         self.ws_url = "wss://ws.okx.com:8443/ws/v5/private"
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._ws_logged = False
+
+    async def _ensure_ws(self):
+        """Open and login to WebSocket if needed."""
+        if not (self._ws and self._ws.open):
+            self._ws = None
+            await self.ws()
+        if not self._ws_logged:
+            await self._ws_login()
+
+    async def _reset_ws(self):
+        if self._ws:
+            await self._ws.close()
+        self._ws = None
+        self._ws_logged = False
+        await asyncio.sleep(1)
 
     async def _headers(self, method: str, path: str, body: str = "") -> Dict[str, str]:
         ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
@@ -104,25 +118,23 @@ class OKXGateway:
     async def ws_private_stream(
         self, channel: str, inst_id: str | None = None
     ) -> AsyncGenerator[dict, None]:
-        args = {"channel": channel}
+        sub_arg = {"channel": channel}
         if inst_id:
-            args["instId"] = inst_id
+            sub_arg["instId"] = inst_id
+        await self._ensure_ws()
+        await self.ws_send({"op": "subscribe", "args": [sub_arg]})
+        ws = await self.ws()
         while True:
             try:
-                await self._ws_login()
-                await self.ws_send({"op": "subscribe", "args": [args]})
+                raw = await asyncio.wait_for(ws.recv(), 30)
+            except (asyncio.TimeoutError, websockets.ConnectionClosed):
+                log.warning("WS_DROP", chan=channel)
+                await self._reset_ws()
+                await self.ws_send({"op": "subscribe", "args": [sub_arg]})
                 ws = await self.ws()
-                while True:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=30)
-                    msg = json.loads(raw)
-                    if msg.get("event") == "error":
-                        log.error("WS_ERR", data=msg)
-                    if msg.get("arg", {}).get("channel") == channel:
-                        yield msg
-            except (asyncio.TimeoutError, websockets.WebSocketException):
-                log.warning("WS_RESTART")
-                if self._ws:
-                    await self._ws.close()
-                self._ws = None
-                self._ws_logged = False
-                await asyncio.sleep(1)
+                continue
+            msg = json.loads(raw)
+            if msg.get("event") == "error":
+                log.error("WS_ERR", data=msg)
+            if msg.get("arg", {}).get("channel") == channel:
+                yield msg
