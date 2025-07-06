@@ -25,10 +25,13 @@ async def init_positions(spot: SpotExec, perp: PerpExec, borrow: BorrowMgr, db: 
         return
     # fresh start
     equity = float(os.getenv("EQUITY_USDT", "1000"))
-    price = float((await spot.gw.get("/api/v5/market/ticker", {"instId": PAIR_SPOT}))[0]["last"])
-    spot_target = equity / price
-    await spot.buy(Decimal(spot_target))
-    await borrow.borrow(equity * 2)
+    price = float(
+        (await spot.gw.get("/api/v5/market/ticker", {"instId": PAIR_SPOT}))[0]["last"]
+    )
+    loan_amt = equity * 2
+    await borrow.borrow(loan_amt)
+    spot_target = (equity + loan_amt) / price
+    await spot.buy(Decimal(spot_target), loan_auto=False)
     await perp.short(Decimal(spot_target))
 
 async def main():
