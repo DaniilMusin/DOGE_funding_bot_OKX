@@ -9,6 +9,7 @@ import base64
 import hashlib
 import hmac
 from typing import Any, AsyncGenerator, Dict
+from ..alerts.telegram import tg
 
 log = structlog.get_logger()
 OKX_HOST = "https://www.okx.com"
@@ -63,12 +64,23 @@ class OKXGateway:
         r.raise_for_status()
         return r.json()["data"]
 
+    async def get_equity(self) -> float:
+        data = await self.get("/api/v5/account/balance", {"ccy": "USDT"})
+        return float(data[0]["totalEq"])
+
     async def post(self, path: str, payload: dict) -> Any:
         body = json.dumps(payload, separators=(",", ":"))
         hdr = await self._headers("POST", path, body)
         r = await self.rest.post(path, headers=hdr, content=body)
         r.raise_for_status()
-        return r.json()["data"]
+        resp = r.json()
+        if resp.get("code") != "0":
+            log.warning("API_ERROR", path=path, code=resp.get("code"), msg=resp.get("msg"))
+        for item in resp.get("data", []):
+            if item.get("sCode") == "51000":
+                await tg.send(f"⚠️ order rejected {item.get('sMsg')}")
+                log.warning("ORDER_REJECTED", code="51000", msg=item.get("sMsg"))
+        return resp.get("data", [])
 
     # ----------  WebSocket ----------
     async def ws(self) -> websockets.WebSocketClientProtocol:
