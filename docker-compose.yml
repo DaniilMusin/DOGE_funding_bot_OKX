@@ -1,0 +1,10 @@
+version: '3'
+services:
+  bot:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    command: doge-runner

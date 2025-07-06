@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "doge-carry-bot"
+version = "0.1.0"
+description = "DOGE funding carry bot"
+authors = ["Anonymous"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+httpx = {extras = ["http2"], version = "^0.27"}
+websockets = "^11"
+pydantic = "^2.7"
+apscheduler = "^3.10"
+python-telegram-bot = {extras = ["job-queue"], version = "^20.8"}
+prometheus-client = "^0.19"
+structlog = "^24.1"
+aiosqlite = "^0.20"
+
+[tool.poetry.scripts]
+doge-runner = "src.runner:cli"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
