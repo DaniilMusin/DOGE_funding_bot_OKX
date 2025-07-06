@@ -27,6 +27,7 @@ class OKXGateway:
         self.rest = httpx.AsyncClient(base_url=OKX_HOST, timeout=10.0, http2=True)
         self.ws_url = "wss://ws.okx.com:8443/ws/v5/private"
         self._ws: websockets.WebSocketClientProtocol | None = None
+        self._ws_logged = False
 
     async def _headers(self, method: str, path: str, body: str = "") -> Dict[str, str]:
         ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
@@ -74,13 +75,54 @@ class OKXGateway:
         ws = await self.ws()
         await ws.send(json.dumps(msg))
 
-    async def ws_private_stream(self, channel: str) -> AsyncGenerator[dict, None]:
-        # subscribe once
-        await self.ws_send({"op": "subscribe", "args": [{"channel": channel}]})
+    async def _ws_login(self):
+        if self._ws_logged:
+            return
+        ts = str(time.time())
+        sign = _sign(ts, "GET", "/users/self/verify", "", self.secret)
+        await self.ws_send({
+            "op": "login",
+            "args": [{
+                "apiKey": self.key,
+                "passphrase": self.passph,
+                "timestamp": ts,
+                "sign": sign,
+            }],
+        })
         ws = await self.ws()
-        async for raw in ws:
-            msg = json.loads(raw)
-            if msg.get("event") == "error":
-                log.error("WS_ERR", data=msg)
-            if msg.get("arg", {}).get("channel") == channel:
-                yield msg
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=5)
+            resp = json.loads(raw)
+            if resp.get("event") == "login" and resp.get("code") == "0":
+                self._ws_logged = True
+                log.info("WS_LOGGED")
+            else:
+                log.error("WS_LOGIN_FAIL", data=resp)
+        except Exception as e:
+            log.error("WS_LOGIN_ERR", exc_info=e)
+
+    async def ws_private_stream(
+        self, channel: str, inst_id: str | None = None
+    ) -> AsyncGenerator[dict, None]:
+        args = {"channel": channel}
+        if inst_id:
+            args["instId"] = inst_id
+        while True:
+            try:
+                await self._ws_login()
+                await self.ws_send({"op": "subscribe", "args": [args]})
+                ws = await self.ws()
+                while True:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=30)
+                    msg = json.loads(raw)
+                    if msg.get("event") == "error":
+                        log.error("WS_ERR", data=msg)
+                    if msg.get("arg", {}).get("channel") == channel:
+                        yield msg
+            except (asyncio.TimeoutError, websockets.WebSocketException):
+                log.warning("WS_RESTART")
+                if self._ws:
+                    await self._ws.close()
+                self._ws = None
+                self._ws_logged = False
+                await asyncio.sleep(1)
