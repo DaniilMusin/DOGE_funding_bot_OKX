@@ -7,6 +7,7 @@ from ..alerts.telegram import tg
 
 log = structlog.get_logger()
 
+
 class SpotExec:
     def __init__(self, gw: OKXGateway, db: StateDB, inst: str):
         self.gw, self.db, self.inst = gw, db, inst
@@ -26,7 +27,7 @@ class SpotExec:
         except httpx.HTTPStatusError as e:
             await tg.send(f"❌ Spot BUY rejected: {e.response.text[:120]}")
             raise
-        if res[0].get("sCode") != "0":
+        if not res or res[0].get("sCode") != "0":
             await tg.send(f"❌ Spot BUY failed: {res}")
             raise RuntimeError("orderRejected")
         log.info("SPOT_BUY", resp=res)
@@ -50,7 +51,7 @@ class SpotExec:
         except httpx.HTTPStatusError as e:
             await tg.send(f"❌ Spot SELL rejected: {e.response.text[:120]}")
             raise
-        if res[0].get("sCode") != "0":
+        if not res or res[0].get("sCode") != "0":
             await tg.send(f"❌ Spot SELL failed: {res}")
             raise RuntimeError("orderRejected")
         log.info("SPOT_SELL", resp=res)
