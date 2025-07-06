@@ -7,6 +7,7 @@ from ..alerts.telegram import tg
 
 log = structlog.get_logger()
 
+
 class PerpExec:
     def __init__(self, gw: OKXGateway, db: StateDB, inst: str):
         self.gw, self.db, self.inst = gw, db, inst
@@ -26,7 +27,7 @@ class PerpExec:
         except httpx.HTTPStatusError as e:
             await tg.send(f"❌ Perp SHORT rejected: {e.response.text[:120]}")
             raise
-        if res[0].get("sCode") != "0":
+        if not res or res[0].get("sCode") != "0":
             await tg.send(f"❌ Perp SHORT failed: {res}")
             raise RuntimeError("orderRejected")
         log.info("PERP_SHORT_OPEN", resp=res)
@@ -43,7 +44,7 @@ class PerpExec:
         except httpx.HTTPStatusError as e:
             await tg.send(f"❌ Perp CLOSE rejected: {e.response.text[:120]}")
             raise
-        if res[0].get("sCode") != "0":
+        if not res or res[0].get("sCode") != "0":
             await tg.send(f"❌ Perp CLOSE failed: {res}")
             raise RuntimeError("orderRejected")
         log.info("PERP_CLOSE", resp=res)
