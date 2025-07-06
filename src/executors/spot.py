@@ -11,19 +11,18 @@ class SpotExec:
     def __init__(self, gw: OKXGateway, db: StateDB, inst: str):
         self.gw, self.db, self.inst = gw, db, inst
 
-    async def buy(self, qty: Decimal):
+    async def buy(self, qty: Decimal, loan_auto: bool = True):
         px = "0"  # market
-        res = await self.gw.post(
-            "/api/v5/trade/order",
-            {
-                "instId": self.inst,
-                "side": "buy",
-                "ordType": "market",
-                "sz": str(qty),
-                "tdMode": "cash",
-                "loanTrans": "auto",
-            },
-        )
+        params = {
+            "instId": self.inst,
+            "side": "buy",
+            "ordType": "market",
+            "sz": str(qty),
+            "tdMode": "cash",
+        }
+        if loan_auto:
+            params["loanTrans"] = "auto"
+        res = await self.gw.post("/api/v5/trade/order", params)
         log.info("SPOT_BUY", resp=res)
         await tg.send(f"Spot BUY {qty} {self.inst}")
         spot, perp, loan = await self.db.get()
