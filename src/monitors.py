@@ -26,7 +26,7 @@ class Monitors:
 
     # ----- Funding via WebSocket -----
     async def funding_loop(self, perp: PerpExec, borrow: BorrowMgr):
-        async for msg in self.gw.ws_private_stream("funding-rate"):
+        async for msg in self.gw.ws_private_stream("funding-rate", self.pair_swap):
             d = msg["data"][0]
             if d["instId"] != self.pair_swap:
                 continue
@@ -59,7 +59,7 @@ class Monitors:
     # ----- Liquidation guard -----
     async def liq_loop(self, perp: PerpExec, borrow: BorrowMgr):
         """Emergency close if mark price approaches liquidation price."""
-        async for msg in self.gw.ws_private_stream("positions"):
+        async for msg in self.gw.ws_private_stream("positions", self.pair_swap):
             p = msg["data"][0]
             if p["instId"] != self.pair_swap or p.get("posSide") != "short":
                 continue
