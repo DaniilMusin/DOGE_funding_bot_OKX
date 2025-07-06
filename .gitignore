@@ -1,0 +1,15 @@
+# runtime secrets
+.env
+*.env
+/run/secrets/*
+
+# local DB and logs
+src/db/state.db
+logs/
+*.log
+
+# Python / Poetry trash
+__pycache__/
+*.py[cod]
+.cache/
+.idea/
