@@ -88,3 +88,19 @@ class Monitors:
                         )
                         spot_exec = SpotExec(self.gw, self.db, self.pair_spot)
                         await spot_exec.sell(Decimal(cut_qty))
+
+    # ----- Daily PnL stop -----
+    async def pnl_guard(self):
+        thr = 0.02
+        while True:
+            eq = await self.gw.get_equity()
+            ref, ts = await self.db.get_eq_ref()
+            now = int(time.time())
+            if ref == 0 or now - ts >= 86400:
+                await self.db.save_eq_ref(eq, now)
+            else:
+                drop = (ref - eq) / ref
+                if drop >= thr:
+                    await tg.send(f"‼️ Equity drop {drop:.2%} in 24h – pausing bot")
+                    raise SystemExit("PNL stop")
+            await asyncio.sleep(300)

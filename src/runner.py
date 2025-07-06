@@ -55,6 +55,7 @@ async def main():
         mon.risk_loop(),
         mon.apr_poll(borrow, perp_exec),
         mon.liq_loop(perp_exec, borrow),
+        mon.pnl_guard(),
         reb.run(),
     ]
     await tg.send("DOGE‑carry bot Started")
