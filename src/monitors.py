@@ -1,4 +1,5 @@
 import asyncio
+import os
 import structlog
 import time
 import math
@@ -14,8 +15,9 @@ from prometheus_client import Counter, Gauge
 log = structlog.get_logger()
 funding_gauge = Gauge("funding_rate", "next funding rate")
 risk_gauge = Gauge("risk_ratio", "account risk ratio")
+liq_gap_gauge = Gauge("liq_gap", "Distance (pct) from mark price to liquidation price")
 
-LIQ_THRESHOLD = 0.002  # 0.2%
+LIQ_THRESHOLD = float(os.getenv("LIQ_THRESHOLD", "0.002"))
 
 class Monitors:
     def __init__(self, gw: OKXGateway, db: StateDB, pair_spot: str, pair_swap: str):
@@ -68,9 +70,21 @@ class Monitors:
             if liq_px == 0:
                 continue
             gap = (liq_px - mark_px) / mark_px
+            liq_gap_gauge.set(gap)
             if gap <= LIQ_THRESHOLD:
                 await tg.send(
                     f"‼️ Mark {mark_px} ≈ Liq {liq_px} ({gap:.3%}). Closing legs to avoid liquidation."
                 )
                 await perp.close_all()
                 await borrow.repay_all()
+                state = await self.gw.get("/api/v5/account/risk-state")
+                rr = float(state[0]["riskRatio"])
+                if rr >= 0.80:
+                    spot_qty, _, _ = await self.db.get()
+                    cut_qty = spot_qty * 0.30
+                    if cut_qty > 0:
+                        await tg.send(
+                            f"RiskRatio {rr:.2f} – selling {cut_qty:.0f} DOGE to de-leverage"
+                        )
+                        spot_exec = SpotExec(self.gw, self.db, self.pair_spot)
+                        await spot_exec.sell(Decimal(cut_qty))
