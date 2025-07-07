@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
-SRC="/var/lib/docker/volumes/doge_carry_bot_src_db/_data/state.db"
+SRC="/var/lib/docker/volumes/doge_funding_bot_okx_dbdata/_data/state.db"
 DEST="/opt/doge/backups/state_${TIMESTAMP}.db"
 
 mkdir -p /opt/doge/backups
