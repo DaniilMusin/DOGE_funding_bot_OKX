@@ -16,15 +16,34 @@ OKX_HOST = "https://www.okx.com"
 
 def _sign(ts: str, method: str, path: str, body: str, secret: str) -> str:
     prehash = f"{ts}{method}{path}{body}"
-    return base64.b64encode(hmac.new(secret.encode(), prehash.encode(), hashlib.sha256).digest()).decode()
+    return base64.b64encode(
+        hmac.new(secret.encode(), prehash.encode(), hashlib.sha256).digest()
+    ).decode()
 
 class OKXGateway:
     def __init__(self):
         self.key = os.getenv("OKX_KEY")
         self.secret = os.getenv("OKX_SECRET")
         self.passph = os.getenv("OKX_PASS")
+        missing = [
+            name
+            for name, val in (
+                ("OKX_KEY", self.key),
+                ("OKX_SECRET", self.secret),
+                ("OKX_PASS", self.passph),
+            )
+            if not val
+        ]
+        if missing:
+            raise RuntimeError(
+                f"Missing OKX credentials: {', '.join(missing)}"
+            )
         self.sim = os.getenv("OKX_SIM", "1") == "1"
-        self.rest = httpx.AsyncClient(base_url=OKX_HOST, timeout=10.0, http2=True)
+        self.rest = httpx.AsyncClient(
+            base_url=OKX_HOST,
+            timeout=10.0,
+            http2=True,
+        )
         self.ws_url = "wss://ws.okx.com:8443/ws/v5/private"
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._ws_logged = False
@@ -45,7 +64,9 @@ class OKXGateway:
         await asyncio.sleep(1)
         await self._ensure_ws()
 
-    async def _headers(self, method: str, path: str, body: str = "") -> Dict[str, str]:
+    async def _headers(
+        self, method: str, path: str, body: str = ""
+    ) -> Dict[str, str]:
         ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
         sig = _sign(ts, method, path, body, self.secret)
         hdr = {
@@ -76,12 +97,33 @@ class OKXGateway:
         r.raise_for_status()
         resp = r.json()
         if resp.get("code") != "0":
-            log.warning("API_ERROR", path=path, code=resp.get("code"), msg=resp.get("msg"))
+            log.warning(
+                "API_ERROR",
+                path=path,
+                code=resp.get("code"),
+                msg=resp.get("msg"),
+            )
         for item in resp.get("data", []):
             if item.get("sCode") == "51000":
                 await tg.send(f"⚠️ order rejected {item.get('sMsg')}")
-                log.warning("ORDER_REJECTED", code="51000", msg=item.get("sMsg"))
+                log.warning(
+                    "ORDER_REJECTED",
+                    code="51000",
+                    msg=item.get("sMsg"),
+                )
         return resp.get("data", [])
+
+    async def post_order(self, payload: dict) -> Any:
+        """Submit trade order and ensure success."""
+        try:
+            data = await self.post("/api/v5/trade/order", payload)
+        except httpx.HTTPStatusError as e:
+            await tg.send(f"❌ Order rejected: {e.response.text[:120]}")
+            raise
+        if not data or data[0].get("sCode") != "0":
+            await tg.send(f"❌ Order failed: {data}")
+            raise RuntimeError("orderRejected")
+        return data
 
     # ----------  WebSocket ----------
     async def ws(self) -> websockets.WebSocketClientProtocol:
@@ -141,6 +183,11 @@ class OKXGateway:
                 raw = await asyncio.wait_for(self._ws.recv(), 30)
             except (asyncio.TimeoutError, websockets.ConnectionClosed):
                 log.warning("WS_TIMEOUT", chan=channel)
+                await self._reset_ws()
+                await self.ws_send({"op": "subscribe", "args": [sub_arg]})
+                continue
+            except Exception as e:
+                log.error("WS_STREAM_ERR", exc_info=e)
                 await self._reset_ws()
                 await self.ws_send({"op": "subscribe", "args": [sub_arg]})
                 continue
