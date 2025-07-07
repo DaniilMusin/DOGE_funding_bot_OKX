@@ -12,4 +12,12 @@ persistent state in SQLite and WebSocket monitoring.
    docker compose up -d
    ```
 3. Prometheus metrics available on port `9090`.
+
 4. Persistent database files are stored in the `dbdata` Docker volume mounted at `src/db`.
+5. 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+
+
