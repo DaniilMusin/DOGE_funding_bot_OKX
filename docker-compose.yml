@@ -8,3 +8,8 @@ services:
       - "9090:9090"
     restart: unless-stopped
     command: doge-runner
+    volumes:
+      - dbdata:/app/src/db
+
+volumes:
+  dbdata:
