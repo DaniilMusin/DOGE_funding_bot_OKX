@@ -1,6 +1,5 @@
 from decimal import Decimal
 import structlog
-import httpx
 from ..core.gateway import OKXGateway
 from ..db.state import StateDB
 from ..alerts.telegram import tg
@@ -22,38 +21,23 @@ class SpotExec:
         }
         if loan_auto:
             params["loanTrans"] = "auto"
-        try:
-            res = await self.gw.post("/api/v5/trade/order", params)
-        except httpx.HTTPStatusError as e:
-            await tg.send(f"❌ Spot BUY rejected: {e.response.text[:120]}")
-            raise
-        if not res or res[0].get("sCode") != "0":
-            await tg.send(f"❌ Spot BUY failed: {res}")
-            raise RuntimeError("orderRejected")
+        res = await self.gw.post_order(params)
         log.info("SPOT_BUY", resp=res)
         await tg.send(f"Spot BUY {qty} {self.inst}")
         spot, perp, loan = await self.db.get()
         await self.db.save(spot + float(qty), perp, loan)
 
     async def sell(self, qty: Decimal):
-        try:
-            res = await self.gw.post(
-                "/api/v5/trade/order",
-                {
-                    "instId": self.inst,
-                    "side": "sell",
-                    "ordType": "market",
-                    "sz": str(qty),
-                    "tdMode": "cash",
-                    "loanTrans": "auto",
-                },
-            )
-        except httpx.HTTPStatusError as e:
-            await tg.send(f"❌ Spot SELL rejected: {e.response.text[:120]}")
-            raise
-        if not res or res[0].get("sCode") != "0":
-            await tg.send(f"❌ Spot SELL failed: {res}")
-            raise RuntimeError("orderRejected")
+        res = await self.gw.post_order(
+            {
+                "instId": self.inst,
+                "side": "sell",
+                "ordType": "market",
+                "sz": str(qty),
+                "tdMode": "cash",
+                "loanTrans": "auto",
+            }
+        )
         log.info("SPOT_SELL", resp=res)
         await tg.send(f"Spot SELL {qty}")
         spot, perp, loan = await self.db.get()
