@@ -2,7 +2,6 @@ import asyncio
 import os
 import structlog
 import time
-import math
 from decimal import Decimal
 from .core.gateway import OKXGateway
 from .db.state import StateDB
@@ -10,17 +9,22 @@ from .executors.perp import PerpExec
 from .executors.spot import SpotExec
 from .borrow import BorrowMgr
 from .alerts.telegram import tg
-from prometheus_client import Counter, Gauge
+from prometheus_client import Gauge
 
 log = structlog.get_logger()
 funding_gauge = Gauge("funding_rate", "next funding rate")
 risk_gauge = Gauge("risk_ratio", "account risk ratio")
-liq_gap_gauge = Gauge("liq_gap", "Distance (pct) from mark price to liquidation price")
+liq_gap_gauge = Gauge(
+    "liq_gap",
+    "Distance (pct) from mark price to liquidation price",
+)
 
 LIQ_THRESHOLD = float(os.getenv("LIQ_THRESHOLD", "0.002"))
 
 class Monitors:
-    def __init__(self, gw: OKXGateway, db: StateDB, pair_spot: str, pair_swap: str):
+    def __init__(
+        self, gw: OKXGateway, db: StateDB, pair_spot: str, pair_swap: str
+    ) -> None:
         self.gw, self.db = gw, db
         self.pair_spot, self.pair_swap = pair_spot, pair_swap
         self.flip_thr = 0.00001
@@ -28,7 +32,9 @@ class Monitors:
 
     # ----- Funding via WebSocket -----
     async def funding_loop(self, perp: PerpExec, borrow: BorrowMgr):
-        async for msg in self.gw.ws_private_stream("funding-rate", self.pair_swap):
+        async for msg in self.gw.ws_private_stream(
+            "funding-rate", self.pair_swap
+        ):
             d = msg["data"][0]
             if d["instId"] != self.pair_swap:
                 continue
@@ -45,15 +51,25 @@ class Monitors:
             rr = float(msg["data"][0]["riskRatio"])
             risk_gauge.set(rr)
             if rr >= 0.9:
-                await tg.send(f"EMERGENCY riskRatio {rr:.2f} > 0.9 – manual action required")
+                await tg.send(
+                    (
+                        f"EMERGENCY riskRatio {rr:.2f} > 0.9 – "
+                        "manual action required"
+                    )
+                )
 
     # ----- APR poll -----
     async def apr_poll(self, borrow: BorrowMgr, perp: PerpExec):
         while True:
-            data = await self.gw.get("/api/v5/account/max-loan", {"ccy": "USDT"})
+            data = await self.gw.get(
+                "/api/v5/account/max-loan",
+                {"ccy": "USDT"},
+            )
             apr = float(data[0]["interestRate"])
             if apr >= self.apr_exit:
-                await tg.send(f"APR {apr:.2%} > {self.apr_exit:.2%} – exit carry")
+                await tg.send(
+                    f"APR {apr:.2%} > {self.apr_exit:.2%} – exit carry"
+                )
                 await perp.close_all()
                 await borrow.repay_all()
             await asyncio.sleep(600)
@@ -61,7 +77,9 @@ class Monitors:
     # ----- Liquidation guard -----
     async def liq_loop(self, perp: PerpExec, borrow: BorrowMgr):
         """Emergency close if mark price approaches liquidation price."""
-        async for msg in self.gw.ws_private_stream("positions", self.pair_swap):
+        async for msg in self.gw.ws_private_stream(
+            "positions", self.pair_swap
+        ):
             p = msg["data"][0]
             if p["instId"] != self.pair_swap or p.get("posSide") != "short":
                 continue
@@ -73,7 +91,10 @@ class Monitors:
             liq_gap_gauge.set(gap)
             if gap <= LIQ_THRESHOLD:
                 await tg.send(
-                    f"‼️ Mark {mark_px} ≈ Liq {liq_px} ({gap:.3%}). Closing legs to avoid liquidation."
+                    (
+                        f"‼️ Mark {mark_px} ≈ Liq {liq_px} ({gap:.3%}). "
+                        "Closing legs to avoid liquidation."
+                    )
                 )
                 await perp.close_all()
                 await borrow.repay_all()
@@ -84,7 +105,10 @@ class Monitors:
                     cut_qty = spot_qty * 0.30
                     if cut_qty > 0:
                         await tg.send(
-                            f"RiskRatio {rr:.2f} – selling {cut_qty:.0f} DOGE to de-leverage"
+                            (
+                                f"RiskRatio {rr:.2f} – selling {cut_qty:.0f} "
+                                "DOGE to de-leverage"
+                            )
                         )
                         spot_exec = SpotExec(self.gw, self.db, self.pair_spot)
                         await spot_exec.sell(Decimal(cut_qty))
@@ -101,6 +125,8 @@ class Monitors:
             else:
                 drop = (ref - eq) / ref
                 if drop >= thr:
-                    await tg.send(f"‼️ Equity drop {drop:.2%} in 24h – pausing bot")
+                    await tg.send(
+                        f"‼️ Equity drop {drop:.2%} in 24h – pausing bot"
+                    )
                     raise SystemExit("PNL stop")
             await asyncio.sleep(300)

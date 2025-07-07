@@ -1,6 +1,5 @@
 import asyncio
 import structlog
-import math
 from decimal import Decimal
 from .core.gateway import OKXGateway
 from .db.state import StateDB
@@ -13,8 +12,19 @@ log = structlog.get_logger()
 delta_gauge = Gauge("delta_abs", "absolute delta doge")
 
 class Rebalancer:
-    def __init__(self, gw: OKXGateway, db: StateDB, spot_exec: SpotExec, perp_exec: PerpExec):
-        self.gw, self.db, self.spot_exec, self.perp_exec = gw, db, spot_exec, perp_exec
+    def __init__(
+        self,
+        gw: OKXGateway,
+        db: StateDB,
+        spot_exec: SpotExec,
+        perp_exec: PerpExec,
+    ) -> None:
+        self.gw, self.db, self.spot_exec, self.perp_exec = (
+            gw,
+            db,
+            spot_exec,
+            perp_exec,
+        )
         self.thr = 0.01
 
     async def run(self):

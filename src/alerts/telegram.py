@@ -1,4 +1,3 @@
-import asyncio
 import structlog
 import os
 from telegram import Bot, constants
