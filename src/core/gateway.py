@@ -144,6 +144,11 @@ class OKXGateway:
                 await self._reset_ws()
                 await self.ws_send({"op": "subscribe", "args": [sub_arg]})
                 continue
+            except Exception as e:
+                log.error("WS_STREAM_ERR", exc_info=e)
+                await self._reset_ws()
+                await self.ws_send({"op": "subscribe", "args": [sub_arg]})
+                continue
             msg = json.loads(raw)
             if msg.get("event") == "error":
                 log.error("WS_ERR", data=msg)
