@@ -12,3 +12,7 @@ persistent state in SQLite and WebSocket monitoring.
    docker compose up -d
    ```
 3. Prometheus metrics available on port `9090`.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
