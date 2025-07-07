@@ -23,6 +23,19 @@ class OKXGateway:
         self.key = os.getenv("OKX_KEY")
         self.secret = os.getenv("OKX_SECRET")
         self.passph = os.getenv("OKX_PASS")
+        missing = [
+            name
+            for name, val in (
+                ("OKX_KEY", self.key),
+                ("OKX_SECRET", self.secret),
+                ("OKX_PASS", self.passph),
+            )
+            if not val
+        ]
+        if missing:
+            raise RuntimeError(
+                f"Missing OKX credentials: {', '.join(missing)}"
+            )
         self.sim = os.getenv("OKX_SIM", "1") == "1"
         self.rest = httpx.AsyncClient(base_url=OKX_HOST, timeout=10.0, http2=True)
         self.ws_url = "wss://ws.okx.com:8443/ws/v5/private"
