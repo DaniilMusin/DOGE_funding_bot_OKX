@@ -13,23 +13,15 @@ class PerpExec:
         self.gw, self.db, self.inst = gw, db, inst
 
     async def short(self, qty: Decimal):
-        try:
-            res = await self.gw.post(
-                "/api/v5/trade/order",
-                {
-                    "instId": self.inst,
-                    "side": "sell",
-                    "ordType": "market",
-                    "tdMode": "cross",
-                    "sz": str(qty),
-                },
-            )
-        except httpx.HTTPStatusError as e:
-            await tg.send(f"❌ Perp SHORT rejected: {e.response.text[:120]}")
-            raise
-        if not res or res[0].get("sCode") != "0":
-            await tg.send(f"❌ Perp SHORT failed: {res}")
-            raise RuntimeError("orderRejected")
+        res = await self.gw.post_order(
+            {
+                "instId": self.inst,
+                "side": "sell",
+                "ordType": "market",
+                "tdMode": "cross",
+                "sz": str(qty),
+            }
+        )
         log.info("PERP_SHORT_OPEN", resp=res)
         await tg.send(f"Perp SHORT {qty}")
         spot, perp, loan = await self.db.get()

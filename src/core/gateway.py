@@ -83,6 +83,18 @@ class OKXGateway:
                 log.warning("ORDER_REJECTED", code="51000", msg=item.get("sMsg"))
         return resp.get("data", [])
 
+    async def post_order(self, payload: dict) -> Any:
+        """Submit trade order and ensure success."""
+        try:
+            data = await self.post("/api/v5/trade/order", payload)
+        except httpx.HTTPStatusError as e:
+            await tg.send(f"❌ Order rejected: {e.response.text[:120]}")
+            raise
+        if not data or data[0].get("sCode") != "0":
+            await tg.send(f"❌ Order failed: {data}")
+            raise RuntimeError("orderRejected")
+        return data
+
     # ----------  WebSocket ----------
     async def ws(self) -> websockets.WebSocketClientProtocol:
         if self._ws and self._ws.open:
