@@ -37,8 +37,15 @@ class Rebalancer:
             delta_gauge.set(delta)
             if delta >= self.thr:
                 await tg.send(f"Δ {delta:.2%} > {self.thr:.2%} – rebalance")
-                if perp < -1e-6:
-                    await self.perp_exec.short(Decimal(delta * spot))
-                else:
-                    await self.perp_exec.close_all()
+                # Fix: need to rebalance to target hedge ratio
+                imbalance = spot + perp  # positive = excess spot, negative = excess short
+                if abs(imbalance) > spot * self.thr:
+                    if imbalance > 0:
+                        # Too much spot, need more short
+                        await self.perp_exec.short(Decimal(abs(imbalance)))
+                    else:
+                        # Too much short, need to close some
+                        await self.perp_exec.close_all()
+                        if spot > abs(perp):
+                            await self.perp_exec.short(Decimal(spot))
             await asyncio.sleep(60)

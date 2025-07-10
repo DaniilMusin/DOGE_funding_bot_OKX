@@ -28,21 +28,31 @@ async def init_positions(
     if spot_qty > 0 and perp_qty < 0:
         log.info("STATE_RESTORED", spot=spot_qty, perp=perp_qty, loan=loan)
         return
+    
     # fresh start
-    equity = float(os.getenv("EQUITY_USDT", "1000"))
-    price = float(
-        (
-            await spot.gw.get(
-                "/api/v5/market/ticker",
-                {"instId": PAIR_SPOT},
-            )
-        )[0]["last"]
-    )
-    loan_amt = equity * 2
-    await borrow.borrow(loan_amt)
-    spot_target = (equity + loan_amt) / price
-    await spot.buy(Decimal(spot_target), loan_auto=False)
-    await perp.short(Decimal(spot_target))
+    try:
+        equity = float(os.getenv("EQUITY_USDT", "1000"))
+        ticker_data = await spot.gw.get(
+            "/api/v5/market/ticker",
+            {"instId": PAIR_SPOT},
+        )
+        if not ticker_data:
+            raise RuntimeError("No ticker data received")
+        
+        price = float(ticker_data[0]["last"])
+        if price <= 0:
+            raise RuntimeError(f"Invalid price received: {price}")
+            
+        loan_amt = equity * 2
+        await borrow.borrow(loan_amt)
+        spot_target = (equity + loan_amt) / price
+        await spot.buy(Decimal(spot_target), loan_auto=False)
+        await perp.short(Decimal(spot_target))
+        log.info("INIT_COMPLETE", equity=equity, price=price, spot_target=spot_target)
+    except Exception as e:
+        log.error("INIT_FAILED", exc_info=e)
+        await tg.send(f"❌ Initialization failed: {str(e)[:150]}")
+        raise
 
 async def main():
     gw = OKXGateway()
@@ -53,23 +63,32 @@ async def main():
     perp_exec = PerpExec(gw, db, PAIR_SWAP)
     borrow = BorrowMgr(gw, db)
 
-    await init_positions(spot_exec, perp_exec, borrow, db)
+    try:
+        await init_positions(spot_exec, perp_exec, borrow, db)
 
-    mon = Monitors(gw, db, PAIR_SPOT, PAIR_SWAP)
-    reb = Rebalancer(gw, db, spot_exec, perp_exec)
+        mon = Monitors(gw, db, PAIR_SPOT, PAIR_SWAP)
+        reb = Rebalancer(gw, db, spot_exec, perp_exec)
 
-    start_http_server(9090)  # Prometheus
+        start_http_server(9090)  # Prometheus
 
-    tasks = [
-        mon.funding_loop(perp_exec, borrow),
-        mon.risk_loop(),
-        mon.apr_poll(borrow, perp_exec),
-        mon.liq_loop(perp_exec, borrow),
-        mon.pnl_guard(),
-        reb.run(),
-    ]
-    await tg.send("DOGE‑carry bot Started")
-    await asyncio.gather(*tasks)
+        tasks = [
+            mon.funding_loop(perp_exec, borrow),
+            mon.risk_loop(),
+            mon.apr_poll(borrow, perp_exec),
+            mon.liq_loop(perp_exec, borrow),
+            mon.pnl_guard(),
+            reb.run(),
+        ]
+        await tg.send("DOGE‑carry bot Started")
+        await asyncio.gather(*tasks)
+    except Exception as e:
+        log.error("MAIN_ERROR", exc_info=e)
+        await tg.send(f"❌ Bot crashed: {str(e)[:200]}")
+        raise
+    finally:
+        # Clean up resources
+        await gw.close()
+        log.info("CLEANUP_COMPLETE")
 
 
 def cli():
