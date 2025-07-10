@@ -33,10 +33,11 @@ class StateDB:
 
     async def get(self) -> Tuple[float, float, float]:
         async with self._lock, aiosqlite.connect(self.path) as db:
-            row = await db.execute_fetchone(
+            cursor = await db.execute(
                 "select spot_qty, perp_qty, "
                 "loan_usdt from bot_state where id=1"
             )
+            row = await cursor.fetchone()
             return row  # (spot, perp, loan)
 
     async def save(self, spot: float, perp: float, loan: float):
@@ -52,9 +53,10 @@ class StateDB:
 
     async def get_eq_ref(self) -> Tuple[float, int]:
         async with self._lock, aiosqlite.connect(self.path) as db:
-            row = await db.execute_fetchone(
+            cursor = await db.execute(
                 "select eq_usd, ts from equity_ref where id=1"
             )
+            row = await cursor.fetchone()
             return row  # (equity, timestamp)
 
     async def save_eq_ref(self, eq_usd: float, ts: int):

@@ -48,6 +48,15 @@ class OKXGateway:
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._ws_logged = False
 
+    async def close(self):
+        """Close HTTP client and WebSocket connections."""
+        if self.rest:
+            await self.rest.aclose()
+        if self._ws:
+            await self._ws.close()
+            self._ws = None
+            self._ws_logged = False
+
     async def _ensure_ws(self):
         """Open and login to WebSocket if needed."""
         if not (self._ws and self._ws.open):
@@ -56,12 +65,12 @@ class OKXGateway:
         if not self._ws_logged:
             await self._ws_login()
 
-    async def _reset_ws(self):
+    async def _reset_ws(self, backoff_delay: float = 1.0):
         if self._ws:
             await self._ws.close()
         self._ws = None
         self._ws_logged = False
-        await asyncio.sleep(1)
+        await asyncio.sleep(backoff_delay)
         await self._ensure_ws()
 
     async def _headers(
@@ -129,10 +138,9 @@ class OKXGateway:
     async def ws(self) -> websockets.WebSocketClientProtocol:
         if self._ws and self._ws.open:
             return self._ws
-        hdr = await self._headers("GET", "/ws")
+        # WebSocket connections don't need HTTP headers for authentication
         self._ws = await websockets.connect(
             self.ws_url,
-            extra_headers=hdr,
             ping_interval=15,
             ping_timeout=15,
             max_size=2**20,
@@ -178,20 +186,34 @@ class OKXGateway:
             sub_arg["instId"] = inst_id
         await self._ensure_ws()
         await self.ws_send({"op": "subscribe", "args": [sub_arg]})
+        
+        reconnect_delay = 1.0
+        max_delay = 60.0
+        
         while True:
             try:
                 raw = await asyncio.wait_for(self._ws.recv(), 30)
+                # Reset delay on successful message
+                reconnect_delay = 1.0
             except (asyncio.TimeoutError, websockets.ConnectionClosed):
-                log.warning("WS_TIMEOUT", chan=channel)
-                await self._reset_ws()
+                log.warning("WS_TIMEOUT", chan=channel, delay=reconnect_delay)
+                await self._reset_ws(reconnect_delay)
                 await self.ws_send({"op": "subscribe", "args": [sub_arg]})
+                reconnect_delay = min(reconnect_delay * 2, max_delay)
                 continue
             except Exception as e:
-                log.error("WS_STREAM_ERR", exc_info=e)
-                await self._reset_ws()
+                log.error("WS_STREAM_ERR", exc_info=e, delay=reconnect_delay)
+                await self._reset_ws(reconnect_delay)
                 await self.ws_send({"op": "subscribe", "args": [sub_arg]})
+                reconnect_delay = min(reconnect_delay * 2, max_delay)
                 continue
-            msg = json.loads(raw)
+            
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError as e:
+                log.error("WS_JSON_ERR", raw=raw[:100], exc_info=e)
+                continue
+                
             if msg.get("event") == "error":
                 log.error("WS_ERR", data=msg)
             if msg.get("arg", {}).get("channel") == channel:
