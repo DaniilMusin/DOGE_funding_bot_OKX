@@ -14,7 +14,8 @@ persistent state in SQLite and WebSocket monitoring.
 3. Prometheus metrics available on port `9090`.
 
 4. Persistent database files are stored in the `dbdata` Docker volume mounted at `src/db`.
-5. 
+5. The initial position size is derived from your current USDT balance
+   automatically – the `EQUITY_USDT` variable is no longer required.
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
