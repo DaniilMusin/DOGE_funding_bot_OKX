@@ -76,7 +76,7 @@ class OKXGateway:
     async def _headers(
         self, method: str, path: str, body: str = ""
     ) -> Dict[str, str]:
-        ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+        ts = str(time.time())
         sig = _sign(ts, method, path, body, self.secret)
         hdr = {
             "OK-ACCESS-KEY": self.key,
