@@ -1,6 +1,5 @@
 import asyncio
 import structlog
-import os
 from decimal import Decimal
 from prometheus_client import start_http_server
 from .core.gateway import OKXGateway
@@ -31,7 +30,10 @@ async def init_positions(
     
     # fresh start
     try:
-        equity = float(os.getenv("EQUITY_USDT", "1000"))
+        # Fetch current USDT equity from the account instead of relying on
+        # a fixed environment variable. This prevents order size errors when
+        # the available balance differs from the preset value.
+        equity = await spot.gw.get_equity()
         ticker_data = await spot.gw.get(
             "/api/v5/market/ticker",
             {"instId": PAIR_SPOT},
