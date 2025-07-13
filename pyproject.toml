@@ -4,6 +4,12 @@ version = "0.1.0"
 description = "DOGE funding carry bot"
 authors = ["Anonymous"]
 
+# Treat src/ as the project namespace so that the code
+# can be installed as a package when published via Poetry.
+packages = [
+  { include = "src" }
+]
+
 [tool.poetry.dependencies]
 python = "^3.11"
 # `python-telegram-bot` 20.x requires `httpx` <0.27.0. Previous dependency on
