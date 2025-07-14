@@ -53,7 +53,12 @@ async def init_positions(
         adjusted_target = math.floor(spot_target)
         await spot.buy(Decimal(adjusted_target), loan_auto=False)
         await perp.short(Decimal(adjusted_target))
-        log.info("INIT_COMPLETE", equity=equity, price=price, spot_target=spot_target)
+        log.info(
+            "INIT_COMPLETE",
+            equity=equity,
+            price=price,
+            spot_target=adjusted_target,
+        )
     except Exception as e:
         log.error("INIT_FAILED", exc_info=e)
         await tg.send(f"❌ Initialization failed: {str(e)[:150]}")
