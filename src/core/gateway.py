@@ -3,12 +3,21 @@ import json
 import websockets
 import asyncio
 import structlog
-import time
+from datetime import datetime, timezone
 import os
 import base64
 import hashlib
 import hmac
 from typing import Any, AsyncGenerator, Dict
+
+
+def _timestamp() -> str:
+    """Return current time in RFC3339 format with milliseconds."""
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 from ..alerts.telegram import tg
 
 log = structlog.get_logger()
@@ -76,7 +85,7 @@ class OKXGateway:
     async def _headers(
         self, method: str, path: str, body: str = ""
     ) -> Dict[str, str]:
-        ts = str(time.time())
+        ts = _timestamp()
         sig = _sign(ts, method, path, body, self.secret)
         hdr = {
             "OK-ACCESS-KEY": self.key,
@@ -155,7 +164,7 @@ class OKXGateway:
     async def _ws_login(self):
         if self._ws_logged:
             return
-        ts = str(time.time())
+        ts = _timestamp()
         sign = _sign(ts, "GET", "/users/self/verify", "", self.secret)
         await self.ws_send({
             "op": "login",
