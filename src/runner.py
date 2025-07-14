@@ -1,6 +1,7 @@
 import asyncio
 import structlog
 from decimal import Decimal
+import math
 from prometheus_client import start_http_server
 from .core.gateway import OKXGateway
 from .db.state import StateDB
@@ -48,8 +49,10 @@ async def init_positions(
         loan_amt = equity * 2
         await borrow.borrow(loan_amt)
         spot_target = (equity + loan_amt) / price
-        await spot.buy(Decimal(spot_target), loan_auto=False)
-        await perp.short(Decimal(spot_target))
+        # OKX spot trades DOGE in integer lots, floor to avoid rejected orders
+        adjusted_target = math.floor(spot_target)
+        await spot.buy(Decimal(adjusted_target), loan_auto=False)
+        await perp.short(Decimal(adjusted_target))
         log.info("INIT_COMPLETE", equity=equity, price=price, spot_target=spot_target)
     except Exception as e:
         log.error("INIT_FAILED", exc_info=e)
