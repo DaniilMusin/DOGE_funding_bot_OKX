@@ -14,7 +14,12 @@ class BorrowMgr:
             return
         await self.gw.post(
             "/api/v5/account/borrow-repay",
-            {"ccy": "USDT", "amt": str(usdt), "side": "borrow"},
+            {
+                "ccy": "USDT",
+                "amt": str(usdt),
+                "side": "borrow",
+                "loanType": "2",
+            },
         )
         spot, perp, loan = await self.db.get()
         await self.db.save(spot, perp, loan + usdt)
