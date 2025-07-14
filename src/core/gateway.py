@@ -9,6 +9,7 @@ import base64
 import hashlib
 import hmac
 from typing import Any, AsyncGenerator, Dict
+import urllib.parse
 
 
 def _timestamp() -> str:
@@ -28,6 +29,16 @@ def _sign(ts: str, method: str, path: str, body: str, secret: str) -> str:
     return base64.b64encode(
         hmac.new(secret.encode(), prehash.encode(), hashlib.sha256).digest()
     ).decode()
+
+# ---------- helpers ----------
+def _join_path(path: str, params: dict | None) -> str:
+    """
+    Склеивает path с query-строкой, если переданы params.
+    Нужно, чтобы в подпись попадали и параметры запроса.
+    """
+    if not params:
+        return path
+    return f"{path}?{urllib.parse.urlencode(params, safe=',')}"
 
 class OKXGateway:
     def __init__(self):
@@ -99,8 +110,9 @@ class OKXGateway:
         return hdr
 
     async def get(self, path: str, params: dict | None = None) -> Any:
-        hdr = await self._headers("GET", path)
-        r = await self.rest.get(path, headers=hdr, params=params)
+        full = _join_path(path, params)
+        hdr  = await self._headers("GET", full)
+        r    = await self.rest.get(full, headers=hdr)
         r.raise_for_status()
         return r.json()["data"]
 
