@@ -31,10 +31,28 @@ async def init_positions(
     
     # fresh start
     try:
-        # Fetch current USDT equity from the account instead of relying on
-        # a fixed environment variable. This prevents order size errors when
-        # the available balance differs from the preset value.
+        # Get initial account state
         initial_equity = await spot.gw.get_equity()
+        log.info("INIT_START", initial_equity=initial_equity)
+        
+        # Calculate maximum safe loan based on available quota and balance
+        max_safe_loan = await borrow.calculate_safe_loan(target_multiplier=2.0, safety_factor=0.85)
+        
+        if max_safe_loan <= 0:
+            raise RuntimeError("No borrowing capacity available. Check account balance and loan quota.")
+        
+        # Attempt to borrow the calculated safe amount
+        borrow_success = await borrow.borrow(max_safe_loan)
+        if not borrow_success:
+            # If borrowing failed, try with smaller amount
+            max_safe_loan = await borrow.calculate_safe_loan(target_multiplier=1.5, safety_factor=0.7)
+            if max_safe_loan > 0:
+                borrow_success = await borrow.borrow(max_safe_loan)
+            
+            if not borrow_success:
+                raise RuntimeError("Failed to secure any loan. Check account status and available quota.")
+        
+        # Get current ticker data
         ticker_data = await spot.gw.get(
             "/api/v5/market/ticker",
             {"instId": PAIR_SPOT},
@@ -45,35 +63,58 @@ async def init_positions(
         price = float(ticker_data[0]["last"])
         if price <= 0:
             raise RuntimeError(f"Invalid price received: {price}")
-            
-        loan_amt = initial_equity * 2
-        await borrow.borrow(loan_amt)
         
-        # Re-fetch equity after borrowing to ensure we have accurate available balance
+        # Re-fetch equity after borrowing to get accurate available balance
         current_equity = await spot.gw.get_equity()
-        log.info("EQUITY_CHECK", initial=initial_equity, after_borrow=current_equity, loan=loan_amt)
+        log.info("EQUITY_AFTER_BORROW", 
+                initial=initial_equity, 
+                after_borrow=current_equity, 
+                loan=max_safe_loan,
+                price=price)
         
-        # Use 95% of available balance to account for any margin requirements
-        safe_balance = current_equity * 0.95
-        spot_target = safe_balance / price
-        # OKX spot trades DOGE in integer lots, floor to avoid rejected orders
-        adjusted_target = math.floor(spot_target)
+        # Calculate position size with multiple safety factors
+        available_for_trading = current_equity * 0.92  # Keep 8% buffer for fees and margin
+        spot_target_raw = available_for_trading / price
         
-        if adjusted_target <= 0:
-            raise RuntimeError(f"Insufficient balance for trading. Available: {safe_balance} USDT, Price: {price}")
-            
-        await spot.buy(Decimal(adjusted_target), loan_auto=False)
-        await perp.short(Decimal(adjusted_target))
+        # Round down to avoid fractional shares and ensure we don't exceed balance
+        spot_target = math.floor(spot_target_raw)
+        
+        if spot_target <= 0:
+            raise RuntimeError(f"Insufficient balance for trading. Available: {available_for_trading:.2f} USDT, Price: {price}, Target: {spot_target_raw:.2f}")
+        
+        # Verify we have enough balance for the calculated position
+        required_usdt = spot_target * price
+        if required_usdt > current_equity * 0.95:
+            # Further reduce position size if needed
+            spot_target = math.floor((current_equity * 0.9) / price)
+            log.warning("POSITION_REDUCED", 
+                       original_target=math.floor(spot_target_raw),
+                       reduced_target=spot_target,
+                       reason="insufficient_balance")
+        
+        if spot_target <= 0:
+            raise RuntimeError(f"Position size too small after safety adjustments. Equity: {current_equity}, Price: {price}")
+        
+        # Execute trades with error handling
+        log.info("EXECUTING_TRADES", spot_target=spot_target, required_usdt=spot_target * price)
+        
+        await spot.buy(Decimal(spot_target), loan_auto=True)
+        await perp.short(Decimal(spot_target))
+        
         log.info(
             "INIT_COMPLETE",
             initial_equity=initial_equity,
-            current_equity=current_equity,
+            final_equity=current_equity,
+            loan_amount=max_safe_loan,
             price=price,
-            spot_target=adjusted_target,
+            spot_position=spot_target,
+            position_value=spot_target * price,
         )
+        await tg.send(f"✅ Bot initialized: {spot_target} DOGE @ ${price:.4f}, Loan: ${max_safe_loan:.2f}")
+        
     except Exception as e:
         log.error("INIT_FAILED", exc_info=e)
-        await tg.send(f"❌ Initialization failed: {str(e)[:150]}")
+        await tg.send(f"❌ Initialization failed: {str(e)[:200]}")
         raise
 
 async def main():
