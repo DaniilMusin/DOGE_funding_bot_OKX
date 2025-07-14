@@ -141,6 +141,13 @@ class OKXGateway:
                     code="51000",
                     msg=item.get("sMsg"),
                 )
+            elif item.get("sCode") == "51008":
+                await tg.send(f"💰 Insufficient balance: {item.get('sMsg')}")
+                log.warning(
+                    "INSUFFICIENT_BALANCE",
+                    code="51008",
+                    msg=item.get("sMsg"),
+                )
         return resp.get("data", [])
 
     async def post_order(self, payload: dict) -> Any:
