@@ -15,7 +15,10 @@ persistent state in SQLite and WebSocket monitoring.
 
 4. Persistent database files are stored in the `dbdata` Docker volume mounted at `src/db`.
 5. The initial position size is derived from your current USDT balance
-   automatically – the `EQUITY_USDT` variable is no longer required.
+   automatically – the `EQUITY_USDT` variable is no longer required. You can
+   tune exposure via the `BORROW_MULT` and `SPOT_RATIO` settings in `.env` which
+   control the borrowing amount and what portion of funds is used for the
+   spot/short legs.
 ## License
 
 This project is licensed under the [MIT License](LICENSE).

@@ -2,6 +2,7 @@ import asyncio
 import structlog
 from decimal import Decimal
 import math
+import os
 from prometheus_client import start_http_server
 from .core.gateway import OKXGateway
 from .db.state import StateDB
@@ -17,6 +18,13 @@ log = structlog.get_logger()
 
 PAIR_SPOT = "DOGE-USDT"
 PAIR_SWAP = "DOGE-USDT-SWAP"
+
+# Borrow multiplier and spot allocation ratio can be tuned via env vars.
+# BORROW_MULT defines how much USDT to borrow relative to current equity.
+# SPOT_RATIO defines what fraction of total available USDT to allocate to the
+# spot leg (and matching short). Remaining funds stay as margin.
+BORROW_MULT = float(os.getenv("BORROW_MULT", "1"))
+SPOT_RATIO = float(os.getenv("SPOT_RATIO", "0.6"))
 
 async def init_positions(
     spot: SpotExec,
@@ -46,15 +54,23 @@ async def init_positions(
         if price <= 0:
             raise RuntimeError(f"Invalid price received: {price}")
             
-        loan_amt = initial_equity * 2
+        # Determine how much to borrow based on current equity
+        loan_amt = initial_equity * BORROW_MULT
         await borrow.borrow(loan_amt)
-        
+
         # Re-fetch equity after borrowing to ensure we have accurate available balance
         current_equity = await spot.gw.get_equity()
-        log.info("EQUITY_CHECK", initial=initial_equity, after_borrow=current_equity, loan=loan_amt)
-        
-        # Use 95% of available balance to account for any margin requirements
-        safe_balance = current_equity * 0.95
+        log.info(
+            "EQUITY_CHECK",
+            initial=initial_equity,
+            after_borrow=current_equity,
+            loan=loan_amt,
+        )
+
+        total_funds = current_equity
+        # Allocate only a fraction of total funds to the spot/short legs so that
+        # enough USDT remains as margin for the perpetual position.
+        safe_balance = total_funds * SPOT_RATIO
         spot_target = safe_balance / price
         # OKX spot trades DOGE in integer lots, floor to avoid rejected orders
         adjusted_target = math.floor(spot_target)
