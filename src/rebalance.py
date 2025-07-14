@@ -35,7 +35,10 @@ class Rebalancer:
             
             # Need to add more short - check margin
             current_equity = await self.gw.get_equity()
-            ticker_data = await self.gw.get("/api/v5/market/ticker", {"instId": "DOGE-USDT-SWAP"})
+            ticker_data = await self.gw.get(
+                "/api/v5/market/ticker",
+                {"instId": self.perp_exec.inst},
+            )
             
             if not ticker_data:
                 return False
