@@ -34,7 +34,7 @@ async def init_positions(
         # Fetch current USDT equity from the account instead of relying on
         # a fixed environment variable. This prevents order size errors when
         # the available balance differs from the preset value.
-        equity = await spot.gw.get_equity()
+        initial_equity = await spot.gw.get_equity()
         ticker_data = await spot.gw.get(
             "/api/v5/market/ticker",
             {"instId": PAIR_SPOT},
@@ -46,16 +46,28 @@ async def init_positions(
         if price <= 0:
             raise RuntimeError(f"Invalid price received: {price}")
             
-        loan_amt = equity * 2
+        loan_amt = initial_equity * 2
         await borrow.borrow(loan_amt)
-        spot_target = (equity + loan_amt) / price
+        
+        # Re-fetch equity after borrowing to ensure we have accurate available balance
+        current_equity = await spot.gw.get_equity()
+        log.info("EQUITY_CHECK", initial=initial_equity, after_borrow=current_equity, loan=loan_amt)
+        
+        # Use 95% of available balance to account for any margin requirements
+        safe_balance = current_equity * 0.95
+        spot_target = safe_balance / price
         # OKX spot trades DOGE in integer lots, floor to avoid rejected orders
         adjusted_target = math.floor(spot_target)
+        
+        if adjusted_target <= 0:
+            raise RuntimeError(f"Insufficient balance for trading. Available: {safe_balance} USDT, Price: {price}")
+            
         await spot.buy(Decimal(adjusted_target), loan_auto=False)
         await perp.short(Decimal(adjusted_target))
         log.info(
             "INIT_COMPLETE",
-            equity=equity,
+            initial_equity=initial_equity,
+            current_equity=current_equity,
             price=price,
             spot_target=adjusted_target,
         )

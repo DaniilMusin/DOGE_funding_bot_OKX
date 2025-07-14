@@ -13,6 +13,11 @@ class PerpExec:
         self.gw, self.db, self.inst = gw, db, inst
 
     async def short(self, qty: Decimal):
+        if qty <= 0:
+            raise ValueError(f"Invalid quantity for short order: {qty}")
+            
+        log.info("PERP_SHORT_ATTEMPT", qty=qty, inst=self.inst)
+        
         res = await self.gw.post_order(
             {
                 "instId": self.inst,
