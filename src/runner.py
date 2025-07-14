@@ -98,7 +98,7 @@ async def init_positions(
         # Execute trades with error handling
         log.info("EXECUTING_TRADES", spot_target=spot_target, required_usdt=spot_target * price)
         
-        await spot.buy(Decimal(spot_target), loan_auto=True)
+        await spot.buy(Decimal(spot_target), loan_auto=False)
         await perp.short(Decimal(spot_target))
         
         log.info(
