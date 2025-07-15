@@ -94,6 +94,16 @@ class SpotExec:
                            f"have {current_equity:.2f} USDT equity")
                 await tg.send(f"⚠️ {error_msg}")
         
+        # Check max allowed size from API
+        max_info = await self.gw.get_max_size(self.inst, "cash")
+        if max_info and max_info.get("maxBuy"):
+            max_buy = Decimal(str(max_info["maxBuy"]))
+            if qty > max_buy:
+                await tg.send(
+                    f"⚠️ Reducing buy size from {qty} to {max_buy} due to max-size"
+                )
+                qty = max_buy
+
         # Prepare order parameters
         params = {
             "instId": self.inst,
