@@ -4,6 +4,7 @@ import httpx
 from ..core.gateway import OKXGateway
 from ..db.state import StateDB
 from ..alerts.telegram import tg
+from ..utils import safe_float
 
 log = structlog.get_logger()
 
@@ -21,15 +22,15 @@ class PerpExec:
                 return None
                 
             account_info = balance_data[0]
-            total_eq = float(account_info["totalEq"])
-            adj_eq = float(account_info.get("adjEq", total_eq))
+            total_eq = safe_float(account_info.get("totalEq"))
+            adj_eq = safe_float(account_info.get("adjEq"), total_eq)
             
             # Get current price for margin calculation
             ticker_data = await self.gw.get("/api/v5/market/ticker", {"instId": self.inst})
             if not ticker_data:
                 return None
                 
-            mark_price = float(ticker_data[0]["last"])
+            mark_price = safe_float(ticker_data[0].get("last"))
             notional = float(qty) * mark_price
             
             # Rough margin requirement estimation (typically 10-20% for cross margin)
@@ -133,11 +134,11 @@ class PerpExec:
             for pos in positions:
                 if pos["instId"] == self.inst and pos.get("posSide") == "short":
                     return {
-                        "size": float(pos.get("pos", 0)),
-                        "notional": float(pos.get("notionalUsd", 0)),
-                        "unrealized_pnl": float(pos.get("upl", 0)),
-                        "mark_price": float(pos.get("markPx", 0)),
-                        "liq_price": float(pos.get("liqPx", 0)),
+                        "size": safe_float(pos.get("pos")),
+                        "notional": safe_float(pos.get("notionalUsd")),
+                        "unrealized_pnl": safe_float(pos.get("upl")),
+                        "mark_price": safe_float(pos.get("markPx")),
+                        "liq_price": safe_float(pos.get("liqPx")),
                     }
             return None
         except Exception as e:

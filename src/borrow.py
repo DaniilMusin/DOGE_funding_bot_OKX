@@ -2,6 +2,7 @@ import structlog
 from .core.gateway import OKXGateway
 from .db.state import StateDB
 from .alerts.telegram import tg
+from .utils import safe_float
 
 log = structlog.get_logger()
 
@@ -17,12 +18,13 @@ class BorrowMgr:
                 {"ccy": currency},
             )
             if data:
+                d = data[0]
                 return {
-                    "maxLoan": float(data[0]["maxLoan"]),
-                    "loanQuota": float(data[0]["loanQuota"]),
-                    "usedQuota": float(data[0]["usedQuota"]),
-                    "availableQuota": float(data[0]["loanQuota"]) - float(data[0]["usedQuota"]),
-                    "interestRate": float(data[0]["interestRate"]),
+                    "maxLoan": safe_float(d.get("maxLoan")),
+                    "loanQuota": safe_float(d.get("loanQuota")),
+                    "usedQuota": safe_float(d.get("usedQuota")),
+                    "availableQuota": safe_float(d.get("loanQuota")) - safe_float(d.get("usedQuota")),
+                    "interestRate": safe_float(d.get("interestRate")),
                 }
         except Exception as e:
             log.error("LOAN_INFO_ERROR", exc_info=e)
@@ -36,9 +38,9 @@ class BorrowMgr:
             if data:
                 balance_info = data[0]
                 return {
-                    "totalEq": float(balance_info["totalEq"]),
-                    "adjEq": float(balance_info["adjEq"]),
-                    "details": balance_info["details"][0] if balance_info["details"] else {},
+                    "totalEq": safe_float(balance_info.get("totalEq")),
+                    "adjEq": safe_float(balance_info.get("adjEq")),
+                    "details": balance_info["details"][0] if balance_info.get("details") else {},
                 }
         except Exception as e:
             log.error("BALANCE_INFO_ERROR", exc_info=e)
