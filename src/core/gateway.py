@@ -20,6 +20,7 @@ def _timestamp() -> str:
         .replace("+00:00", "Z")
     )
 from ..alerts.telegram import tg
+from ..utils import safe_float
 
 log = structlog.get_logger()
 OKX_HOST = "https://www.okx.com"
@@ -119,6 +120,40 @@ class OKXGateway:
     async def get_equity(self) -> float:
         data = await self.get("/api/v5/account/balance", {"ccy": "USDT"})
         return float(data[0]["totalEq"])
+
+    async def get_max_size(self, inst_id: str, td_mode: str = "cash") -> dict | None:
+        """Return maximum allowed size for a new order."""
+        try:
+            data = await self.get(
+                "/api/v5/account/max-size",
+                {"instId": inst_id, "tdMode": td_mode},
+            )
+            if data:
+                d = data[0]
+                return {
+                    "maxBuy": safe_float(d.get("maxBuy") or d.get("maxSize")),
+                    "maxSell": safe_float(d.get("maxSell") or d.get("maxSize")),
+                }
+        except Exception as e:
+            log.error("MAX_SIZE_ERROR", inst=inst_id, exc_info=e)
+        return None
+
+    async def get_max_avail_size(self, inst_id: str, td_mode: str = "cash") -> dict | None:
+        """Return maximum available size that can be bought/sold."""
+        try:
+            data = await self.get(
+                "/api/v5/account/max-avail-size",
+                {"instId": inst_id, "tdMode": td_mode},
+            )
+            if data:
+                d = data[0]
+                return {
+                    "availBuy": safe_float(d.get("availBuy")),
+                    "availSell": safe_float(d.get("availSell")),
+                }
+        except Exception as e:
+            log.error("MAX_AVAIL_ERROR", inst=inst_id, exc_info=e)
+        return None
 
     async def post(self, path: str, payload: dict) -> Any:
         body = json.dumps(payload, separators=(",", ":"))

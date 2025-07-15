@@ -121,3 +121,21 @@ class BorrowMgr:
             log.error("REPAY_ERROR", exc_info=e)
             await tg.send(f"❌ Repay failed: {str(e)}")
             return False
+
+    async def repay(self, usdt: float) -> bool:
+        """Repay part of the outstanding loan."""
+        if usdt <= 0:
+            return True
+        try:
+            await self.gw.post(
+                "/api/v5/account/borrow-repay",
+                {"ccy": "USDT", "side": "repay", "amt": str(usdt)},
+            )
+            spot, perp, loan = await self.db.get()
+            await self.db.save(spot, perp, max(loan - usdt, 0.0))
+            await tg.send(f"Repaid {usdt:.2f} USDT")
+            return True
+        except Exception as e:
+            log.error("REPAY_PART_ERROR", exc_info=e)
+            await tg.send(f"❌ Repay failed: {str(e)}")
+            return False

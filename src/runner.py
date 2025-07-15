@@ -75,7 +75,26 @@ async def init_positions(
         # Calculate position size with multiple safety factors
         available_for_trading = current_equity * 0.92  # Keep 8% buffer for fees and margin
         spot_target_raw = available_for_trading / price
-        
+
+        # Check maximum available size from API
+        avail_info = await spot.gw.get_max_avail_size(PAIR_SPOT, "cash")
+        if avail_info and avail_info.get("availBuy"):
+            avail_buy = avail_info["availBuy"]
+            if spot_target_raw > avail_buy:
+                log.warning(
+                    "TARGET_TRIMMED",
+                    calculated=spot_target_raw,
+                    avail_buy=avail_buy,
+                )
+                spot_target_raw = avail_buy
+                # Repay unused portion of the loan
+                required_loan = max(0.0, spot_target_raw * price - initial_equity)
+                excess_loan = max(0.0, max_safe_loan - required_loan)
+                if excess_loan > 1.0:
+                    await borrow.repay(excess_loan)
+                    current_equity -= excess_loan
+                    max_safe_loan -= excess_loan
+
         # Round down to avoid fractional shares and ensure we don't exceed balance
         spot_target = math.floor(spot_target_raw)
         
