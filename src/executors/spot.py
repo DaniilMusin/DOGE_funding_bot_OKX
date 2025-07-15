@@ -3,6 +3,7 @@ import structlog
 from ..core.gateway import OKXGateway
 from ..db.state import StateDB
 from ..alerts.telegram import tg
+from ..utils import safe_float
 
 log = structlog.get_logger()
 
@@ -32,15 +33,15 @@ class SpotExec:
                 return None
             
             return {
-                "totalEq": float(balance_info["totalEq"]),
-                "availEq": float(usdt_details.get("availEq", 0)),
-                "cashBal": float(usdt_details.get("cashBal", 0)),
-                "frozenBal": float(usdt_details.get("frozenBal", 0)),
-                "ordFrozen": float(usdt_details.get("ordFrozen", 0)),
-                "liab": float(usdt_details.get("liab", 0)),
-                "maxLoan": float(usdt_details.get("maxLoan", 0)),
+                "totalEq": safe_float(balance_info.get("totalEq")),
+                "availEq": safe_float(usdt_details.get("availEq")),
+                "cashBal": safe_float(usdt_details.get("cashBal")),
+                "frozenBal": safe_float(usdt_details.get("frozenBal")),
+                "ordFrozen": safe_float(usdt_details.get("ordFrozen")),
+                "liab": safe_float(usdt_details.get("liab")),
+                "maxLoan": safe_float(usdt_details.get("maxLoan")),
                 "required": required_usdt,
-                "can_execute": float(usdt_details.get("availEq", 0)) >= required_usdt * 1.05  # 5% buffer
+                "can_execute": safe_float(usdt_details.get("availEq")) >= required_usdt * 1.05  # 5% buffer
             }
         except Exception as e:
             log.error("BALANCE_CHECK_ERROR", exc_info=e)
@@ -58,7 +59,7 @@ class SpotExec:
         if not ticker_data:
             raise RuntimeError("Failed to get ticker data")
             
-        price = float(ticker_data[0]["last"])
+        price = safe_float(ticker_data[0].get("last"))
         estimated_cost = float(qty) * price
         
         # Get detailed balance check
@@ -147,7 +148,7 @@ class SpotExec:
             
             # Get current price for reporting
             ticker_data = await self.gw.get("/api/v5/market/ticker", {"instId": self.inst})
-            price = float(ticker_data[0]["last"]) if ticker_data else 0
+            price = safe_float(ticker_data[0].get("last")) if ticker_data else 0
             
             await tg.send(f"✅ Spot SELL {qty} {self.inst} @ ${price:.4f}")
             
