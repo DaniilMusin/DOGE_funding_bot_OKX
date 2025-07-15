@@ -118,8 +118,14 @@ class OKXGateway:
         return r.json()["data"]
 
     async def get_equity(self) -> float:
-        data = await self.get("/api/v5/account/balance", {"ccy": "USDT"})
-        return float(data[0]["totalEq"])
+        """Return total account equity in USDT safely."""
+        try:
+            data = await self.get("/api/v5/account/balance", {"ccy": "USDT"})
+            if data:
+                return safe_float(data[0].get("totalEq"))
+        except Exception as e:
+            log.error("EQUITY_ERROR", exc_info=e)
+        return 0.0
 
     async def get_max_size(self, inst_id: str, td_mode: str = "cash") -> dict | None:
         """Return maximum allowed size for a new order."""
