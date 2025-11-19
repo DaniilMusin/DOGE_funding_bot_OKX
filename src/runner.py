@@ -11,6 +11,7 @@ from .borrow import BorrowMgr
 from .monitors import Monitors
 from .rebalance import Rebalancer
 from .alerts.telegram import tg
+from . import config
 
 structlog.configure(processors=[structlog.processors.JSONRenderer()])
 log = structlog.get_logger()
@@ -36,16 +37,22 @@ async def init_positions(
         log.info("INIT_START", initial_equity=initial_equity)
         
         # Calculate maximum safe loan based on available quota and balance
-        max_safe_loan = await borrow.calculate_safe_loan(target_multiplier=2.0, safety_factor=0.85)
-        
+        max_safe_loan = await borrow.calculate_safe_loan(
+            target_multiplier=config.DEFAULT_TARGET_MULTIPLIER,
+            safety_factor=config.DEFAULT_SAFETY_FACTOR
+        )
+
         if max_safe_loan <= 0:
             raise RuntimeError("No borrowing capacity available. Check account balance and loan quota.")
-        
+
         # Attempt to borrow the calculated safe amount
         borrow_success = await borrow.borrow(max_safe_loan)
         if not borrow_success:
             # If borrowing failed, try with smaller amount
-            max_safe_loan = await borrow.calculate_safe_loan(target_multiplier=1.5, safety_factor=0.7)
+            max_safe_loan = await borrow.calculate_safe_loan(
+                target_multiplier=config.FALLBACK_MULTIPLIER,
+                safety_factor=config.FALLBACK_SAFETY_FACTOR
+            )
             if max_safe_loan > 0:
                 borrow_success = await borrow.borrow(max_safe_loan)
             
@@ -57,10 +64,10 @@ async def init_positions(
             "/api/v5/market/ticker",
             {"instId": PAIR_SPOT},
         )
-        if not ticker_data:
+        if not ticker_data or len(ticker_data) == 0:
             raise RuntimeError("No ticker data received")
-        
-        price = float(ticker_data[0]["last"])
+
+        price = float(ticker_data[0].get("last", 0))
         if price <= 0:
             raise RuntimeError(f"Invalid price received: {price}")
         
@@ -73,7 +80,7 @@ async def init_positions(
                 price=price)
         
         # Calculate position size with multiple safety factors
-        available_for_trading = current_equity * 0.92  # Keep 8% buffer for fees and margin
+        available_for_trading = current_equity * config.BALANCE_BUFFER_RATIO
         spot_target_raw = available_for_trading / price
 
         # Check maximum available size from API
@@ -88,24 +95,24 @@ async def init_positions(
                 )
                 spot_target_raw = avail_buy
                 # Repay unused portion of the loan
-                required_loan = max(0.0, spot_target_raw * price - initial_equity)
+                required_loan = max(0.0, spot_target_raw * price - current_equity)
                 excess_loan = max(0.0, max_safe_loan - required_loan)
-                if excess_loan > 1.0:
+                if excess_loan > config.MIN_REPAY_AMOUNT:
                     await borrow.repay(excess_loan)
                     current_equity -= excess_loan
                     max_safe_loan -= excess_loan
 
         # Round down to avoid fractional shares and ensure we don't exceed balance
         spot_target = math.floor(spot_target_raw)
-        
+
         if spot_target <= 0:
             raise RuntimeError(f"Insufficient balance for trading. Available: {available_for_trading:.2f} USDT, Price: {price}, Target: {spot_target_raw:.2f}")
-        
+
         # Verify we have enough balance for the calculated position
         required_usdt = spot_target * price
-        if required_usdt > current_equity * 0.95:
+        if required_usdt > current_equity * config.BALANCE_CHECK_BUFFER:
             # Further reduce position size if needed
-            spot_target = math.floor((current_equity * 0.9) / price)
+            spot_target = math.floor((current_equity * config.POSITION_REDUCTION_FACTOR) / price)
             log.warning("POSITION_REDUCED", 
                        original_target=math.floor(spot_target_raw),
                        reduced_target=spot_target,
@@ -154,10 +161,10 @@ async def main():
         start_http_server(9090)  # Prometheus
 
         tasks = [
-            mon.funding_loop(perp_exec, borrow),
+            mon.funding_loop(spot_exec, perp_exec, borrow),
             mon.risk_loop(),
-            mon.apr_poll(borrow, perp_exec),
-            mon.liq_loop(perp_exec, borrow),
+            mon.apr_poll(spot_exec, borrow, perp_exec),
+            mon.liq_loop(spot_exec, perp_exec, borrow),
             mon.pnl_guard(),
             reb.run(),
         ]

@@ -117,12 +117,21 @@ class SpotExec:
             
         try:
             res = await self.gw.post_order(params)
-            log.info("SPOT_BUY_SUCCESS", qty=qty, price=price, resp=res)
-            await tg.send(f"✅ Spot BUY {qty} {self.inst} @ ${price:.4f}")
-            
-            # Update state
-            spot, perp, loan = await self.db.get()
-            await self.db.save(spot + float(qty), perp, loan)
+
+            # Parse actual filled quantity from response
+            filled_qty = float(qty)  # Default to requested
+            if res and len(res) > 0:
+                filled_str = res[0].get("fillSz") or res[0].get("accFillSz") or str(qty)
+                try:
+                    filled_qty = float(filled_str)
+                except (ValueError, TypeError):
+                    log.warning("FILL_QTY_PARSE_FAIL", raw=filled_str, using_requested=qty)
+
+            log.info("SPOT_BUY_SUCCESS", requested=qty, filled=filled_qty, price=price, resp=res)
+            await tg.send(f"✅ Spot BUY {filled_qty} {self.inst} @ ${price:.4f}")
+
+            # Update state atomically
+            await self.db.update_spot(filled_qty)
             return True
             
         except Exception as e:
@@ -154,17 +163,26 @@ class SpotExec:
                     "loanTrans": "auto",
                 }
             )
-            log.info("SPOT_SELL_SUCCESS", qty=qty, resp=res)
-            
+
+            # Parse actual filled quantity from response
+            filled_qty = float(qty)  # Default to requested
+            if res and len(res) > 0:
+                filled_str = res[0].get("fillSz") or res[0].get("accFillSz") or str(qty)
+                try:
+                    filled_qty = float(filled_str)
+                except (ValueError, TypeError):
+                    log.warning("FILL_QTY_PARSE_FAIL", raw=filled_str, using_requested=qty)
+
+            log.info("SPOT_SELL_SUCCESS", requested=qty, filled=filled_qty, resp=res)
+
             # Get current price for reporting
             ticker_data = await self.gw.get("/api/v5/market/ticker", {"instId": self.inst})
-            price = safe_float(ticker_data[0].get("last")) if ticker_data else 0
-            
-            await tg.send(f"✅ Spot SELL {qty} {self.inst} @ ${price:.4f}")
-            
-            # Update state
-            spot, perp, loan = await self.db.get()
-            await self.db.save(spot - float(qty), perp, loan)
+            price = safe_float(ticker_data[0].get("last")) if ticker_data and len(ticker_data) > 0 else 0
+
+            await tg.send(f"✅ Spot SELL {filled_qty} {self.inst} @ ${price:.4f}")
+
+            # Update state atomically
+            await self.db.update_spot(-filled_qty)
             return True
             
         except Exception as e:

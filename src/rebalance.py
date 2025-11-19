@@ -7,6 +7,7 @@ from .executors.perp import PerpExec
 from .executors.spot import SpotExec
 from .alerts.telegram import tg
 from prometheus_client import Gauge
+from . import config
 
 log = structlog.get_logger()
 delta_gauge = Gauge("delta_abs", "absolute delta doge")
@@ -25,7 +26,7 @@ class Rebalancer:
             spot_exec,
             perp_exec,
         )
-        self.thr = 0.01
+        self.thr = config.REBALANCE_DELTA_THRESHOLD
 
     async def check_rebalance_feasibility(self, imbalance: float, spot_qty: float):
         """Check if we can safely execute the rebalance operation."""
@@ -44,9 +45,9 @@ class Rebalancer:
                 return False
                 
             price = float(ticker_data[0]["last"])
-            required_margin = abs(imbalance) * price * 0.2  # Conservative margin estimate
-            
-            if current_equity < required_margin * 3:  # 3x safety buffer
+            required_margin = abs(imbalance) * price * config.MARGIN_REQUIREMENT_ESTIMATE
+
+            if current_equity < required_margin * config.REBALANCE_MARGIN_BUFFER:
                 await tg.send(f"⚠️ Insufficient margin for rebalance. Need ~{required_margin:.2f}, have {current_equity:.2f}")
                 return False
                 
@@ -77,7 +78,7 @@ class Rebalancer:
                     # Don't try to close more than we have
                     current_perp_qty = abs(stored_perp_qty)
                 
-                if current_perp_qty > spot_qty * 0.5:
+                if current_perp_qty > spot_qty * config.REBALANCE_THRESHOLD_MULTIPLIER:
                     # If we need to close too much, close all and re-establish
                     await self.perp_exec.close_all()
                     await asyncio.sleep(2)  # Brief pause
@@ -114,11 +115,11 @@ class Rebalancer:
         while True:
             try:
                 spot, perp, _ = await self.db.get()
-                if spot == 0:
-                    await asyncio.sleep(60)
+                if spot == 0 or abs(spot) < config.MIN_POSITION_SIZE:
+                    await asyncio.sleep(config.REBALANCE_LOOP_INTERVAL)
                     continue
-                    
-                delta = abs(spot + perp) / spot
+
+                delta = abs(spot + perp) / abs(spot) if abs(spot) > 0 else 0
                 delta_gauge.set(delta)
                 
                 if delta >= self.thr:
@@ -141,5 +142,5 @@ class Rebalancer:
             except Exception as e:
                 log.error("REBALANCE_LOOP_ERROR", exc_info=e)
                 await tg.send(f"❌ Rebalance loop error: {str(e)[:150]}")
-                
-            await asyncio.sleep(60)
+
+            await asyncio.sleep(config.REBALANCE_LOOP_INTERVAL)
