@@ -98,8 +98,8 @@ class BorrowMgr:
                     "loanType": "2",
                 },
             )
-            spot, perp, loan = await self.db.get()
-            await self.db.save(spot, perp, loan + usdt)
+            # Update loan atomically
+            await self.db.update_loan(usdt)
             await tg.send(f"Borrowed {usdt} USDT")
             return True
         except Exception as e:
@@ -109,12 +109,17 @@ class BorrowMgr:
 
     async def repay_all(self):
         try:
+            # Get current loan amount first
+            _, _, current_loan = await self.db.get()
+
             await self.gw.post(
                 "/api/v5/account/borrow-repay",
                 {"ccy": "USDT", "side": "repay", "amt": ""},
             )
-            spot, perp, _ = await self.db.get()
-            await self.db.save(spot, perp, 0.0)
+
+            # Reset loan to 0 atomically
+            if current_loan != 0:
+                await self.db.update_loan(-current_loan)
             await tg.send("Loan fully repaid")
             return True
         except Exception as e:
@@ -131,8 +136,8 @@ class BorrowMgr:
                 "/api/v5/account/borrow-repay",
                 {"ccy": "USDT", "side": "repay", "amt": str(usdt)},
             )
-            spot, perp, loan = await self.db.get()
-            await self.db.save(spot, perp, max(loan - usdt, 0.0))
+            # Update loan atomically (negative delta for repayment)
+            await self.db.update_loan(-usdt)
             await tg.send(f"Repaid {usdt:.2f} USDT")
             return True
         except Exception as e:

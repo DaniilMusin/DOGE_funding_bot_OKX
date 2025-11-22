@@ -76,16 +76,24 @@ class PerpExec:
                     "sz": str(qty),
                 }
             )
-            
+
+            # Parse actual filled quantity from response
+            filled_qty = float(qty)  # Default to requested
+            if res and len(res) > 0:
+                filled_str = res[0].get("fillSz") or res[0].get("accFillSz") or str(qty)
+                try:
+                    filled_qty = float(filled_str)
+                except (ValueError, TypeError):
+                    log.warning("FILL_QTY_PARSE_FAIL", raw=filled_str, using_requested=qty)
+
             # Get execution price if available
             mark_price = margin_check["mark_price"] if margin_check else 0
-            
-            log.info("PERP_SHORT_SUCCESS", qty=qty, price=mark_price, resp=res)
-            await tg.send(f"✅ Perp SHORT {qty} {self.inst} @ ${mark_price:.4f}")
-            
-            # Update state
-            spot, perp, loan = await self.db.get()
-            await self.db.save(spot, perp - float(qty), loan)
+
+            log.info("PERP_SHORT_SUCCESS", requested=qty, filled=filled_qty, price=mark_price, resp=res)
+            await tg.send(f"✅ Perp SHORT {filled_qty} {self.inst} @ ${mark_price:.4f}")
+
+            # Update state atomically (short = negative)
+            await self.db.update_perp(-filled_qty)
             return True
             
         except Exception as e:
@@ -107,16 +115,17 @@ class PerpExec:
                 {"instId": self.inst, "mgnMode": "cross", "posSide": "short"},
             )
             
-            if not res or res[0].get("sCode") != "0":
+            if not res or len(res) == 0 or res[0].get("sCode") != "0":
                 await tg.send(f"❌ Perp CLOSE failed: {res}")
                 raise RuntimeError("orderRejected")
-                
+
             log.info("PERP_CLOSE_SUCCESS", resp=res)
             await tg.send("✅ Perp short closed")
-            
-            # Update state
-            spot, _, loan = await self.db.get()
-            await self.db.save(spot, 0.0, loan)
+
+            # Reset perp position to 0 (need to read current value first to calculate delta)
+            _, current_perp, _ = await self.db.get()
+            if current_perp != 0:
+                await self.db.update_perp(-current_perp)
             return True
             
         except httpx.HTTPStatusError as e:

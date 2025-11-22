@@ -5,8 +5,12 @@ def safe_float(value: str | float | int | None, default: float = 0.0) -> float:
 
     Returns ``default`` if the conversion fails or value is blank.
     """
-    if value in (None, ""):
+    if value is None:
         return default
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "":
+            return default
     try:
         return float(value)
     except (ValueError, TypeError):
